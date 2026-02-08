@@ -6,6 +6,11 @@ from dateutil import parser
 from datetime import datetime
 import os
 
+import pandas as pd
+from dateutil import parser
+from langchain_core.tools import tool
+from datetime import datetime
+
 # 1. Define the absolute path to your credentials
 # This ensures Python finds the file regardless of where you run it from
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,33 +33,48 @@ def get_sheet():
 from dateutil import parser # You might need: pip install python-dateutil
 
 @tool
-def get_sales_data(target_date: str):
+def get_sales_data(start_date: str, end_date: str = None):
     """
-    Retrieves sales records from the spreadsheet.
+    Retrieves sales records for a specific date, a month, a year, or a custom range.
     Args:
-        target_date: Any date string (e.g., 'today', '22-08-2025', '2025-08-22').
+        start_date: The start date (YYYY-MM-DD). For a whole year, use YYYY-01-01.
+        end_date: (Optional) The end date (YYYY-MM-DD). If omitted, only start_date is used.
     """
     try:
-        # 1. Smart Date Parsing
-        try:
-            # This handles almost any format (DD/MM, MM/DD, etc.)
-            clean_date = parser.parse(target_date, dayfirst=True).strftime("%Y-%m-%d")
-        except:
-            return "Error: I couldn't understand that date. Please use DD-MM-YYYY."
-
         sheet = get_sheet()
         records = sheet.get_all_records()
-        df = pd.DataFrame(records)
+        if not records:
+            return "The spreadsheet is empty."
 
-        # Convert sheet dates to string for matching
-        results = df[df['Date'].astype(str) == clean_date]
+        df = pd.DataFrame(records)
+        # Convert the 'Date' column in your sheet to actual datetime objects
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+
+        # 1. Parse the inputs
+        d1 = parser.parse(start_date)
+        if end_date:
+            d2 = parser.parse(end_date)
+        else:
+            d2 = d1 # If no end_date, we just look at one day
+
+        # 2. Filter the DataFrame
+        mask = (df['Date'] >= d1) & (df['Date'] <= d2)
+        results = df.loc[mask].copy()
 
         if results.empty:
-            return f"I checked the sheet, but there are no sales recorded for {clean_date}."
+            return f"No records found between {d1.strftime('%Y-%m-%d')} and {d2.strftime('%Y-%m-%d')}."
 
-        # The 'to_markdown' requires 'tabulate' (which you just installed)
-        return results.to_markdown(index=False)
+        # 3. Format Output
+        results['Date'] = results['Date'].dt.strftime('%Y-%m-%d')
+        total_sum = results['Sales (in rupees)'].sum()
+        
+        # If the result is huge, only show the first 15 rows + the total
+        if len(results) > 15:
+            table = results.head(15).to_markdown(index=False)
+            return f"Showing first 15 of {len(results)} rows:\n\n{table}\n\n... (truncated)\n\n**TOTAL SALES: {total_sum}**"
+        
+        return f"{results.to_markdown(index=False)}\n\n**TOTAL SALES: {total_sum}**"
 
     except Exception as e:
-        print(f"--- DATABASE ERROR --- \n{str(e)}\n----------------------")
-        return "I had trouble reading the sales sheet. Please try again in a moment."
+        print(f"--- DATABASE ERROR --- \n{str(e)}")
+        return "I had trouble accessing the range. Ensure dates are valid."
