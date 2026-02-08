@@ -27,20 +27,23 @@ llm = ChatGroq(
 
 # 3. Nodes
 def call_mentor(state: AgentState):
-    """The Brain: Decides if we need data or just a chat."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    system_prompt = SystemMessage(content=f"""
-    You are 'Shubh-Chintak', a CEO's mentor. 
-    Today's Date is {today}.
+    today = datetime.now()
+    today_str = today.strftime("%Y-%m-%d")
+    first_day_of_year = today.strftime("%Y-01-01")
 
-    RULES:
-    1. If the user asks for sales or data, you MUST respond with a JSON block and NOTHING ELSE.
-    Format: {{"action": "get_sales_data", "date": "YYYY-MM-DD"}}
-    
-    2. If the user is just saying 'Hi' or asking a general question, respond as a mentor.
-    
-    3. Do NOT use tags like <function> or <tool>. Just raw text or the JSON block.
+    system_prompt = SystemMessage(content=f"""
+    You are 'Shubh-Chintak', a CEO's mentor.
+    Current Date: {today_str}
+
+    HOW TO FETCH DATA:
+    - Single Day: {{"action": "get_sales_data", "start_date": "2025-08-22"}}
+    - A Specific Month: Use the 1st and the last day of that month.
+    - This Year so far: {{"action": "get_sales_data", "start_date": "{first_day_of_year}", "end_date": "{today_str}"}}
+    - Custom Range: Use 'start_date' and 'end_date'.
+    - Follow-up: If the user says "that month", look at the previous message to find the year/month mentioned.
+
+    If the user asks for data, respond ONLY with the JSON block.
+    If the user asks for analysis, be a wise mentor.
     """)
     
     response = llm.invoke([system_prompt] + state["messages"])
@@ -55,19 +58,19 @@ def tool_router(state: AgentState):
     return END
 
 def call_sheet_node(state: AgentState):
-    """The Action: Manually calling the sheet tool."""
     last_message = state["messages"][-1].content
     try:
-        # Extract date from the JSON block the LLM sent
         data = json.loads(last_message)
-        target_date = data.get("date")
+        # Extract both dates if they exist
+        s_date = data.get("start_date")
+        e_date = data.get("end_date", None) # Default to None if not provided
         
-        # Call your sheet_manager function
-        sheet_results = get_sales_data.invoke(target_date)
+        # Call the tool with both arguments
+        sheet_results = get_sales_data.invoke({"start_date": s_date, "end_date": e_date})
         
-        return {"messages": [HumanMessage(content=f"Here is the data from the sheet: {sheet_results}. Now, analyze this for the CEO.")]}
+        return {"messages": [HumanMessage(content=f"Data: {sheet_results}. Summarize and provide mentor advice.")]}
     except Exception as e:
-        return {"messages": [HumanMessage(content=f"Tell the CEO: I couldn't parse the data. Error: {str(e)}")]}
+        return {"messages": [HumanMessage(content=f"Technical error: {str(e)}")]}
 
 # 4. Build the Graph
 workflow = StateGraph(AgentState)
