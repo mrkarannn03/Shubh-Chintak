@@ -1,0 +1,12 @@
+flask
+twilio
+langchain
+langchain-groq
+langchain-community
+langgraph
+gspread
+oauth2client
+python-dotenv
+selenium
+webdriver-manager
+chromadb
